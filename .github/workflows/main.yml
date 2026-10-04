@@ -1,0 +1,42 @@
+name: Inspect FROZT N1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract N1 checkpoint
+        run: |
+          mkdir -p n1_extracted
+          unzip -q "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" -d n1_extracted
+
+      - name: Inspect project structure
+        run: |
+          echo "===== TOP LEVEL ====="
+          find n1_extracted -maxdepth 2 -type f | sort
+
+          echo ""
+          echo "===== BUILD FILES ====="
+          find n1_extracted -type f \( \
+            -name "CMakeLists.txt" -o \
+            -name "build.gradle" -o \
+            -name "build.gradle.kts" -o \
+            -name "settings.gradle" -o \
+            -name "settings.gradle.kts" -o \
+            -name "gradlew" \
+          \) | sort
+
+          echo ""
+          echo "===== ANDROID FILES ====="
+          find n1_extracted -type f \( \
+            -name "AndroidManifest.xml" -o \
+            -name "*.cpp" -o \
+            -name "*.c" -o \
+            -name "*.h" \
+          \) | sort
