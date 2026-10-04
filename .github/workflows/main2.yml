@@ -1,0 +1,64 @@
+name: FROZT Android Build Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract N1 checkpoint
+        run: |
+          mkdir -p n1_extracted
+          unzip -q "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" -d n1_extracted
+
+      - name: Show Java
+        run: |
+          java -version
+
+      - name: Show Gradle
+        run: |
+          gradle --version || true
+
+      - name: Show Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -la "$ANDROID_HOME" || true
+
+      - name: Show Android SDK platforms
+        run: |
+          ls -la "$ANDROID_HOME/platforms" || true
+
+      - name: Show Android SDK build tools
+        run: |
+          ls -la "$ANDROID_HOME/build-tools" || true
+
+      - name: Show NDK
+        run: |
+          ls -la "$ANDROID_HOME/ndk" || true
+          ls -la "$ANDROID_HOME/ndk-bundle" || true
+
+      - name: Show CMake
+        run: |
+          cmake --version || true
+
+      - name: Show Android project
+        run: |
+          cd n1_extracted/f9_release/android
+          echo "===== ANDROID PROJECT ====="
+          find . -maxdepth 4 -type f | sort
+
+      - name: Check Gradle wrapper
+        run: |
+          cd n1_extracted/f9_release/android
+          if [ -f ./gradlew ]; then
+            echo "GRADLE WRAPPER FOUND"
+            ls -l ./gradlew
+          else
+            echo "NO GRADLE WRAPPER FOUND"
+          fi
