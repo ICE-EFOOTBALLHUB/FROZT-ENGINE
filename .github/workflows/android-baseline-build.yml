@@ -1,0 +1,67 @@
+name: FROZT Android Baseline Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract N1 checkpoint
+        run: |
+          mkdir -p n1_extracted
+          unzip -q "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" -d n1_extracted
+
+      - name: Show Android build configuration
+        run: |
+          cd n1_extracted/f9_release/android
+
+          echo "===== settings.gradle ====="
+          cat settings.gradle
+
+          echo ""
+          echo "===== build.gradle ====="
+          cat build.gradle
+
+          echo ""
+          echo "===== app/build.gradle ====="
+          cat app/build.gradle
+
+      - name: Show installed Android CMake versions
+        run: |
+          echo "===== SDK CMake versions ====="
+          find "$ANDROID_HOME/cmake" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -printf "%f\n" | sort || true
+
+      - name: Show Gradle version
+        run: |
+          gradle --version
+
+      - name: Build Android APK
+        run: |
+          cd n1_extracted/f9_release/android
+          gradle --no-daemon --console=plain --stacktrace assembleDebug
+
+      - name: Locate generated APK
+        if: always()
+        run: |
+          echo "===== APK FILES ====="
+          find n1_extracted/f9_release/android \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozt-n1-baseline-apk
+          path: n1_extracted/f9_release/android/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
