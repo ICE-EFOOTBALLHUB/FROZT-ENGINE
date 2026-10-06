@@ -1,0 +1,123 @@
+name: FROZT Android Build - JNI Fix
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract N1 checkpoint
+        run: |
+          mkdir -p n1_extracted
+          unzip -q "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" -d n1_extracted
+
+      - name: Show Android build configuration
+        run: |
+          cd n1_extracted/f9_release/android
+
+          echo "===== settings.gradle ====="
+          cat settings.gradle
+
+          echo ""
+          echo "===== build.gradle ====="
+          cat build.gradle
+
+          echo ""
+          echo "===== app/build.gradle ====="
+          cat app/build.gradle
+
+      - name: Show installed Android CMake versions
+        run: |
+          echo "===== SDK CMake versions ====="
+          find "$ANDROID_HOME/cmake" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -printf "%f\n" | sort || true
+
+      - name: Show Gradle version
+        run: |
+          gradle --version
+
+      - name: Patch JNI syntax error
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path(
+              "n1_extracted/f9_release/android/app/src/main/cpp/"
+              "frozt_android_jni.c"
+          )
+
+          s = p.read_text()
+
+          old = r'snprintf(b,sizeof b,"{\\"action\\":%d}",a);'
+          new = r'snprintf(b, sizeof(b), "{\"action\":%d}", a);'
+
+          if old not in s:
+              print("Expected broken JNI line was not found.")
+              print("Showing nearby nativeInput code:")
+              
+              lines = s.splitlines()
+              for i, line in enumerate(lines):
+                  if "snprintf" in line or "nativeInput" in line:
+                      start = max(0, i - 5)
+                      end = min(len(lines), i + 8)
+                      for j in range(start, end):
+                          print(f"{j + 1}: {lines[j]}")
+              
+              raise SystemExit(
+                  "ERROR: Expected broken JNI string was not found."
+              )
+
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          print("JNI syntax error patched successfully.")
+          PY
+
+      - name: Verify JNI patch
+        run: |
+          echo "===== nativeInput section after patch ====="
+
+          grep -n -A15 -B5 "nativeInput" \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c
+
+          echo ""
+          echo "===== snprintf lines ====="
+
+          grep -n "snprintf" \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c
+
+      - name: Build Android APK
+        run: |
+          cd n1_extracted/f9_release/android
+
+          gradle \
+            --no-daemon \
+            --console=plain \
+            --stacktrace \
+            assembleDebug
+
+      - name: Locate generated APK
+        if: always()
+        run: |
+          echo "===== APK FILES ====="
+
+          find n1_extracted/f9_release/android \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozt-n1-jni-fix-apk
+          path: n1_extracted/f9_release/android/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
