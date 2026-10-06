@@ -1,0 +1,190 @@
+name: FROZT Android Runtime Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract N1 checkpoint
+        run: |
+          mkdir -p n1_extracted
+          unzip -q "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" -d n1_extracted
+
+      - name: Verify extracted project
+        run: |
+          echo "===== ANDROID PROJECT ====="
+          find n1_extracted/f9_release/android -maxdepth 5 -type f | sort
+
+          echo ""
+          echo "===== NATIVE PROJECT ====="
+          find n1_extracted/f9_release/native -maxdepth 4 -type f | sort
+
+      - name: Inspect Android manifest
+        run: |
+          echo "===== AndroidManifest.xml ====="
+          cat n1_extracted/f9_release/android/app/src/main/AndroidManifest.xml
+
+      - name: Inspect Android build configuration
+        run: |
+          echo "===== app/build.gradle ====="
+          cat n1_extracted/f9_release/android/app/build.gradle
+
+          echo ""
+          echo "===== Android CMakeLists.txt ====="
+          cat n1_extracted/f9_release/android/app/src/main/cpp/CMakeLists.txt
+
+      - name: Inspect JNI bridge
+        run: |
+          echo "===== frozt_android_jni.c ====="
+          cat n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c
+
+      - name: Inspect Android Java/C++ shell
+        run: |
+          echo "===== Android source files ====="
+          find n1_extracted/f9_release/android/app/src/main \
+            -type f \
+            \( -name "*.java" -o -name "*.kt" -o -name "*.cpp" -o -name "*.c" -o -name "*.h" \) \
+            -print \
+            -exec sh -c 'echo ""; echo "===== $1 ====="; cat "$1"' _ {} \;
+
+      - name: Inspect native host
+        run: |
+          echo "===== host.c ====="
+          cat n1_extracted/f9_release/native/src/host.c
+
+          echo ""
+          echo "===== frozt_host.h ====="
+          cat n1_extracted/f9_release/native/include/frozt_host.h
+
+      - name: Inspect QuickJS adapter
+        run: |
+          echo "===== quickjs_adapter.c ====="
+          cat n1_extracted/f9_release/native/src/quickjs_adapter.c
+
+      - name: Inspect renderer
+        run: |
+          echo "===== renderer.c ====="
+          cat n1_extracted/f9_release/native/src/renderer.c
+
+          echo ""
+          echo "===== frozt_renderer.h ====="
+          cat n1_extracted/f9_release/native/include/frozt_renderer.h
+
+      - name: Inspect SDL adapter
+        run: |
+          echo "===== sdl_adapter.c ====="
+          cat n1_extracted/f9_release/native/src/sdl_adapter.c
+
+      - name: Inspect package loader
+        run: |
+          echo "===== package.c ====="
+          cat n1_extracted/f9_release/native/src/package.c
+
+          echo ""
+          echo "===== frozt_package.h ====="
+          cat n1_extracted/f9_release/native/include/frozt_package.h
+
+      - name: Inspect APK assets and F9 package
+        run: |
+          echo "===== Android assets ====="
+
+          if [ -d "n1_extracted/f9_release/android/app/src/main/assets" ]; then
+            find n1_extracted/f9_release/android/app/src/main/assets \
+              -type f \
+              -printf "%p (%s bytes)\n"
+          else
+            echo "NO ANDROID ASSETS DIRECTORY FOUND"
+          fi
+
+          echo ""
+          echo "===== F9 PACKAGE LOCATIONS ====="
+
+          find n1_extracted/f9_release \
+            -type f \
+            -name "*.fzt" \
+            -printf "%p (%s bytes)\n" \
+            | sort
+
+      - name: Search for runtime initialization
+        run: |
+          echo "===== Runtime initialization references ====="
+
+          grep -RniE \
+            "quickjs|JS_NewRuntime|JS_NewContext|JS_Eval|runtime|tick|render|start|resume|surface|AAsset|AssetManager|asset|input" \
+            n1_extracted/f9_release/android \
+            n1_extracted/f9_release/native \
+            --include="*.c" \
+            --include="*.cpp" \
+            --include="*.h" \
+            --include="*.java" \
+            --include="*.kt" \
+            | head -n 500 || true
+
+      - name: Search for renderer implementation
+        run: |
+          echo "===== Renderer implementation references ====="
+
+          grep -RniE \
+            "SDL_Render|glClear|glDraw|GLES|OpenGL|Vulkan|Skia|Surface|ANativeWindow|EGL|render\(" \
+            n1_extracted/f9_release/android \
+            n1_extracted/f9_release/native \
+            --include="*.c" \
+            --include="*.cpp" \
+            --include="*.h" \
+            --include="*.java" \
+            --include="*.kt" \
+            | head -n 500 || true
+
+      - name: Search for game package loading
+        run: |
+          echo "===== Package loading references ====="
+
+          grep -RniE \
+            "fixtures_f9_runner|f9_runner|readPackageFile|load|package|main.frozt|game.fzt|AAsset" \
+            n1_extracted/f9_release/android \
+            n1_extracted/f9_release/native \
+            --include="*.c" \
+            --include="*.cpp" \
+            --include="*.h" \
+            --include="*.java" \
+            --include="*.kt" \
+            | head -n 500 || true
+
+      - name: Build APK without modifying source
+        run: |
+          cd n1_extracted/f9_release/android
+
+          gradle \
+            --no-daemon \
+            --console=plain \
+            --stacktrace \
+            assembleDebug
+
+      - name: Inspect generated APK
+        if: always()
+        run: |
+          echo "===== GENERATED APK ====="
+
+          find n1_extracted/f9_release/android \
+            -type f \
+            -name "*.apk" \
+            -printf "%p (%s bytes)\n" \
+            | sort
+
+      - name: Diagnostic summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "FROZT ANDROID RUNTIME DIAGNOSTIC COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "The workflow intentionally made no source changes."
+          echo "Its purpose is to identify the current black-screen"
+          echo "runtime blocker before we modify the N1 architecture."
