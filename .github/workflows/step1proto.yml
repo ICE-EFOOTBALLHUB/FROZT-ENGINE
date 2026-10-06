@@ -53,25 +53,27 @@ jobs:
           cat \
             n1_extracted/f9_release/android/app/src/main/cpp/CMakeLists.txt
 
-      - name: Patch Android asset loading
+      - name: Extract exact asset-loading context
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          echo "===== JNI FUNCTIONS ====="
 
-          p = Path(
-              "n1_extracted/f9_release/android/app/src/main/cpp/"
-              "frozt_android_jni.c"
-          )
+          grep -n -A35 -B10 \
+            -E "nativeStart|nativeStop|nativeInput|nativeResize" \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c \
+            || true
 
-          s = p.read_text()
+          echo ""
+          echo "===== ASSET REFERENCES ====="
 
-          print("Current JNI file loaded successfully.")
-          print("File size:", len(s), "bytes")
-
-          # This step intentionally stops before modifying the source.
-          # We first verify the exact source structure before applying
-          # the asset-loading implementation.
-          PY
+          grep -RniE \
+            "AAssetManager|AAsset_getBuffer|AAsset_open|AAsset_close|frozt_host_load_bundle|game\.fzt" \
+            n1_extracted/f9_release \
+            --include="*.c" \
+            --include="*.cpp" \
+            --include="*.h" \
+            --include="*.java" \
+            --include="*.kt" \
+            || true
 
       - name: Build baseline APK
         run: |
