@@ -1,0 +1,95 @@
+name: FROZT Android Step 1 - Asset Loading
+
+on:
+  workflow_dispatch:
+
+jobs:
+  asset_loading:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract N1 checkpoint
+        run: |
+          mkdir -p n1_extracted
+          unzip -q "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" -d n1_extracted
+
+      - name: Verify game package
+        run: |
+          echo "===== F9 GAME PACKAGE ====="
+
+          find n1_extracted/f9_release \
+            -type f \
+            -name "*.fzt" \
+            -printf "%p (%s bytes)\n" \
+            | sort
+
+      - name: Show current Android JNI source
+        run: |
+          echo "===== CURRENT JNI SOURCE ====="
+
+          cat \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c
+
+      - name: Show package loader API
+        run: |
+          echo "===== PACKAGE HEADER ====="
+
+          cat \
+            n1_extracted/f9_release/native/include/frozt_package.h
+
+          echo ""
+          echo "===== PACKAGE IMPLEMENTATION ====="
+
+          cat \
+            n1_extracted/f9_release/native/src/package.c
+
+      - name: Show Android CMake configuration
+        run: |
+          echo "===== ANDROID CMAKE ====="
+
+          cat \
+            n1_extracted/f9_release/android/app/src/main/cpp/CMakeLists.txt
+
+      - name: Patch Android asset loading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path(
+              "n1_extracted/f9_release/android/app/src/main/cpp/"
+              "frozt_android_jni.c"
+          )
+
+          s = p.read_text()
+
+          print("Current JNI file loaded successfully.")
+          print("File size:", len(s), "bytes")
+
+          # This step intentionally stops before modifying the source.
+          # We first verify the exact source structure before applying
+          # the asset-loading implementation.
+          PY
+
+      - name: Build baseline APK
+        run: |
+          cd n1_extracted/f9_release/android
+
+          gradle \
+            --no-daemon \
+            --console=plain \
+            --stacktrace \
+            assembleDebug
+
+      - name: Verify APK
+        if: always()
+        run: |
+          echo "===== GENERATED APK ====="
+
+          find n1_extracted/f9_release/android \
+            -type f \
+            -name "*.apk" \
+            -printf "%p (%s bytes)\n" \
+            | sort
