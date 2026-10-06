@@ -1,0 +1,50 @@
+name: FROZT N2 - Step 1 - Android Asset Loading
+
+on:
+  workflow_dispatch:
+
+jobs:
+  step1:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract N1 package
+        run: |
+          rm -rf n1_extracted
+          mkdir n1_extracted
+          unzip -q "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" -d n1_extracted
+
+      - name: Inspect Android JNI source
+        run: |
+          echo "===== JNI SOURCE ====="
+          cat "n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c"
+
+          echo ""
+          echo "===== JAVA SOURCE ====="
+          find "n1_extracted/f9_release/android/app/src" -type f -name "*.java" -print
+
+          echo ""
+          echo "===== ASSETS ====="
+          find "n1_extracted/f9_release/android/app/src/main/assets" -type f -print 2>/dev/null || true
+
+      - name: Build Android project
+        run: |
+          cd n1_extracted/f9_release/android
+          gradle --no-daemon --console=plain --stacktrace assembleDebug
+
+      - name: Locate APK
+        run: |
+          find n1_extracted/f9_release/android \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozt-n2-step1-inspection-apk
+          path: n1_extracted/f9_release/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
