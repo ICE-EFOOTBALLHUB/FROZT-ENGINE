@@ -1,0 +1,217 @@
+name: FROZT N2 - Step 1 - Android Asset Load
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show repository state
+        run: |
+          echo "===== REPOSITORY ====="
+          git status --short
+          echo ""
+          echo "===== N1 ZIP ====="
+          ls -lh "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip"
+
+      - name: Extract N1 checkpoint
+        run: |
+          rm -rf n1_extracted
+          mkdir -p n1_extracted
+
+          unzip -q \
+            "Frozt_N1_First_Native_Playable_Preparation_Locked_v1.0.zip" \
+            -d n1_extracted
+
+      - name: Inspect current JNI source
+        run: |
+          echo "===== frozt_android_jni.c ====="
+          sed -n '1,260p' \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c
+
+          echo ""
+          echo "===== JNI PACKAGE-LOAD REFERENCES ====="
+          grep -nE \
+            "AAsset|AAssetManager|frozt_host_load_bundle_memory|nativeStart" \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c \
+            || true
+
+      - name: Implement Step 1 asset loading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "n1_extracted/f9_release/android/app/src/main/cpp/"
+              "frozt_android_jni.c"
+          )
+
+          s = path.read_text()
+
+          # Android Asset Manager API
+          if "#include <android/asset_manager.h>" not in s:
+              marker = "#include <jni.h>"
+              if marker not in s:
+                  raise SystemExit(
+                      "Could not find #include <jni.h> in JNI source"
+                  )
+
+              s = s.replace(
+                  marker,
+                  marker + "\n#include <android/asset_manager.h>",
+                  1
+              )
+
+          # Find nativeStart.
+          start = s.find("nativeStart")
+          if start == -1:
+              raise SystemExit(
+                  "Could not find nativeStart in frozt_android_jni.c"
+              )
+
+          # Find its opening brace.
+          brace = s.find("{", start)
+          if brace == -1:
+              raise SystemExit(
+                  "Could not find nativeStart opening brace"
+              )
+
+          # Find the matching closing brace.
+          depth = 0
+          end = None
+
+          for i in range(brace, len(s)):
+              if s[i] == "{":
+                  depth += 1
+              elif s[i] == "}":
+                  depth -= 1
+                  if depth == 0:
+                      end = i + 1
+                      break
+
+          if end is None:
+              raise SystemExit(
+                  "Could not find nativeStart closing brace"
+              )
+
+          old = s[brace:end]
+
+          # Preserve the existing nativeStart body where possible.
+          # The audit-confirmed missing operation is inserted immediately
+          # before the existing host start call.
+          if "frozt_host_load_bundle_memory" not in old:
+              load_block = r'''
+    /*
+     * N2 Step 1:
+     * Load the bundled read-only game.fzt from the APK before
+     * starting the FROZT host session.
+     *
+     * The Java side must pass an android.content.res.AssetManager
+     * object as the second nativeStart argument.
+     */
+    if (asset_manager_obj) {
+        AAssetManager *asset_manager =
+            AAssetManager_fromJava(env, asset_manager_obj);
+
+        if (!asset_manager) {
+            return;
+        }
+
+        AAsset *asset = AAssetManager_open(
+            asset_manager,
+            "game.fzt",
+            AASSET_MODE_BUFFER
+        );
+
+        if (!asset) {
+            return;
+        }
+
+        const void *asset_data = AAsset_getBuffer(asset);
+        off_t asset_size = AAsset_getLength(asset);
+
+        if (!asset_data || asset_size <= 0) {
+            AAsset_close(asset);
+            return;
+        }
+
+        if (!frozt_host_load_bundle_memory(
+                asset_data,
+                (size_t)asset_size)) {
+            AAsset_close(asset);
+            return;
+        }
+
+        AAsset_close(asset);
+    }
+
+'''
+              # Insert immediately before the first host-start call.
+              candidates = [
+                  "frozt_host_start(",
+                  "frozt_host_start ("
+              ]
+
+              pos = -1
+              for candidate in candidates:
+                  pos = old.find(candidate)
+                  if pos != -1:
+                      break
+
+              if pos == -1:
+                  raise SystemExit(
+                      "Could not find frozt_host_start inside nativeStart. "
+                      "Source layout differs from the expected N1 shell."
+                  )
+
+              old = old[:pos] + load_block + old[pos:]
+
+          s = s[:brace] + old + s[end:]
+
+          path.write_text(s)
+          PY
+
+      - name: Verify Step 1 source
+        run: |
+          echo "===== ASSET LOAD CHECK ====="
+
+          grep -nE \
+            "android/asset_manager.h|AAssetManager_fromJava|AAssetManager_open|AAsset_getBuffer|frozt_host_load_bundle_memory" \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c
+
+          echo ""
+          echo "===== UPDATED nativeStart ====="
+
+          sed -n '/nativeStart/,/^}/p' \
+            n1_extracted/f9_release/android/app/src/main/cpp/frozt_android_jni.c
+
+      - name: Build APK
+        run: |
+          cd n1_extracted/f9_release/android
+
+          gradle \
+            --no-daemon \
+            --console=plain \
+            --stacktrace \
+            assembleDebug
+
+      - name: Locate APK
+        run: |
+          echo "===== APK ====="
+          find n1_extracted \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozt-n2-step1-asset-load-apk
+          path: |
+            n1_extracted/f9_release/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
